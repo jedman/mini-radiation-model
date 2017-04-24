@@ -1,10 +1,10 @@
-import sys
+#import sys
 import math
 import numpy as np
 import matplotlib.pyplot as plt
-sys.path.append('/Users/jedman/Google Drive/Clouds/code/runaway/src/')
+#sys.path.append('/Users/jedman/Google Drive/Clouds/code/runaway/src/')
 import phys
-import miniClimtFancy_jake as rad
+import miniRadModel as rad
 
 # semi-grey band data
 # semiGreyBandParams = Dummy()
