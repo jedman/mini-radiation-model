@@ -42,10 +42,12 @@ class RCE():
       self.dtime = 50*86400/1003 #  timestep and conversion to K/day
       self.massrat = rad.GHG.MolecularWeight/rad.BackgroundGas.MolecularWeight
       self.ps = 1.e5
+      self.data = None
+      self.psat = phys.satvps_function(phys.water)
       return
 
   def doRCE(self, Tglist, rce_type = 'semigrey'):
-      '''find RCE with list of Tg'''
+      '''calculate RCE for list of Tg'''
       if rce_type == 'grey':
           print "doing grey RCE calculation"
           #set grey kappa
@@ -68,15 +70,29 @@ class RCE():
         # set flux function
         rad.LWFlux = rad.LWtotal
 
-      self.data = dict()
+      if self.data is None:
+        self.data = dict()
+
       list_of_keys = ('p', 'T','Tad', 'flux', 'heat', 'q')
       for Tg in Tglist:
+
+        # check if Tg is already in self.data
+        # if it is, start from previous calculation
+        if Tg in self.data:
+          print 'found an old state for Tg = ' +  str(Tg)
+          T = self.data[Tg]['T']
+          self.Tad = self.data[Tg]['Tad']
+          self.p = self.data[Tg]['p']
+          self.q = self.data[Tg]['q']
+          self.FRESH = False
+        else:  # do a new one
+          print 'no old state found for Tg = ' +  str(Tg) + ', starting a new one'
+          self.FRESH = True
           #Use the following for the dry adiabat
           #Tad = Tg*(p/ps)**phys.air.Rcp #Change gas if desired
 
           #Use the following for the moist adiabat
           m = phys.MoistAdiabat(phys.water,phys.air)
-          self.psat = phys.satvps_function(phys.water)
           ps = self.ps + self.psat(Tg) #Total surface pressure for this temperature
           pl, Tad, molarCon, massCon = m(ps,Tg,p)
           T = 250*np.ones(len(p),np.Float) #Initialize constant T
@@ -86,16 +102,20 @@ class RCE():
           self.q = self.rh*massCon #water-like Oobleck?
           #q[:] = 10.e-4 #Makes optical depth 10 for Oobleck
           #------------------------------------------------------------------------
-
+        # do some steps
+        if self.FRESH:
           T,flux,heat = self.steps(T, Tg, 50,self.dtime)
           T,flux,heat = self.steps(T, Tg, 80,self.dtime, strat_do = True)
-          T,flux,heat = self.steps(T, Tg, 250,self.dtime/10, strat_do = True)
-          T,flux,heat = self.steps(T,Tg, 250,self.dtime/50, strat_do = True)
+          T,flux,heat = self.steps(T, Tg, 200,self.dtime/10, strat_do = True)
+          #T,flux,heat = self.steps(T,Tg, 100,self.dtime/50, strat_do = True)
+        else:
+          T,flux,heat = self.steps(T,Tg, 200,self.dtime/50, strat_do = True)
+          T,flux,heat = self.steps(T,Tg, 200,self.dtime/100, strat_do = True)
 
-          profiles = dict()
-          for key, val in zip(list_of_keys, (self.p, T, Tad, flux, heat, self.q)):
-              profiles[key] = val
-          self.data[Tg] = profiles
+        profiles = dict()
+        for key, val in zip(list_of_keys, (self.p, T, self.Tad, flux, heat, self.q)):
+            profiles[key] = val
+        self.data[Tg] = profiles
       return
 
   def steps(self, T, Tg, nSteps, dtime, water_do = True, strat_do = False):
@@ -105,6 +125,7 @@ class RCE():
           if i%5 == 0 & i>0:
               for j in range(1,len(T)-1):
                   T[j] = .25*T[j-1] + .5*T[j] + .25*T[j+1]
+                  self.q[j] = .25*self.q[j-1] + .5*self.q[j] + .25*self.q[j+1]
           #
           flux, heat = rad.LWFlux(self.p,T,Tg,self.q)
           dT = heat*dtime
@@ -128,9 +149,11 @@ class RCE():
             for j, ptot in enumerate(self.p):
               self.q[j] = self.rh*self.psat(T[j])/ptot*self.massrat
             if strat_do:
-              stratq = np.mean(self.q[np.where(T>self.Tad+1)][-1]) # mass mixing ratio at tropopause
+              stratT = self.find_tropopause(Tg, T = T, Tad = self.Tad)
+              stratq = self.q[np.where(T==stratT)]
+              #stratq = self.q[np.where(T>self.Tad+2)][-1] # mass mixing ratio at tropopause
               for j, ptot in enumerate(self.p):
-                if T[j] > self.Tad[j]+1:
+                if T[j] > self.Tad[j]+0.1:
                   self.q[j] = stratq # fix stratospheric mass mixing ratio
                 else:
                   break
@@ -148,7 +171,12 @@ class RCE():
     plt.legend()
     return
 
-  def find_tropopause(self, T, Tad):
+  def find_tropopause(self, Tg, T = None, Tad = None):
+    '''find where the atmosphere stops following a moist adiabat'''
+    if T is None:
+      T = self.data[Tg]['T']
+      Tad = self.data[Tg]['Tad']
+
     strat = T[np.where(T > Tad)]
     for thing in strat[-1::-1]:
       if thing < 250:
