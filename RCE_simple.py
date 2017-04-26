@@ -107,10 +107,10 @@ class RCE():
           T,flux,heat = self.steps(T, Tg, 50,self.dtime)
           T,flux,heat = self.steps(T, Tg, 80,self.dtime, strat_do = True)
           T,flux,heat = self.steps(T, Tg, 200,self.dtime/10, strat_do = True)
-          #T,flux,heat = self.steps(T,Tg, 100,self.dtime/50, strat_do = True)
-        else:
           T,flux,heat = self.steps(T,Tg, 200,self.dtime/50, strat_do = True)
-          T,flux,heat = self.steps(T,Tg, 200,self.dtime/100, strat_do = True)
+        else:
+          #T,flux,heat = self.steps(T,Tg, 200,self.dtime/50, strat_do = True)
+          T,flux,heat = self.steps(T,Tg, 500,self.dtime/100, strat_do = True)
 
         profiles = dict()
         for key, val in zip(list_of_keys, (self.p, T, self.Tad, flux, heat, self.q)):
@@ -153,22 +153,21 @@ class RCE():
               stratq = self.q[np.where(T==stratT)]
               #stratq = self.q[np.where(T>self.Tad+2)][-1] # mass mixing ratio at tropopause
               for j, ptot in enumerate(self.p):
-                if T[j] > self.Tad[j]+0.1:
+                if T[j] > self.Tad[j]:
                   self.q[j] = stratq # fix stratospheric mass mixing ratio
                 else:
-                  break
+                  break # stop when you hit the first point where T < Tad
 
           if i%50 == 0:
               print i,T[0],T[n/2],T[-2],dTmax/dtime
       return T,flux,heat
 
-  def plot_data(self,x,y, flipy = True):
+  def plot_data(self,x,y, flipy = True, **kwargs):
     '''plot keys x and y'''
     for Tg in self.data:
-      plt.plot(self.data[Tg][x], self.data[Tg][y], label = str(Tg))
+      plt.plot(self.data[Tg][x], self.data[Tg][y], **kwargs)
       if flipy:
         plt.ylim(self.data[Tg][y][-1], self.data[Tg][y][0])
-    plt.legend()
     return
 
   def find_tropopause(self, Tg, T = None, Tad = None):
@@ -181,3 +180,13 @@ class RCE():
     for thing in strat[-1::-1]:
       if thing < 250:
           return thing
+
+  def surface_tau(self, Tg):
+    '''get the optical depth at the surface'''
+    data = self.data[Tg]
+    for i, p in enumerate(data['p']):
+      if i > 0 and i+1 < len(data['p']):
+        tau = tau + self.kappa*data['q'][i]*(data['p'][i+1]-data['p'][i-1])/2.
+      elif i > 0:
+        tau = tau + self.kappa*data['q'][i]*(p-data['p'][i-1])
+      return tau
